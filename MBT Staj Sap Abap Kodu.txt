@@ -1,0 +1,239 @@
+*&----------------------------------------------------------------*
+*& Report ZTEST_UFUK
+*&----------------------------------------------------------------*
+*&
+*&----------------------------------------------------------------*
+REPORT ztest_ufuk.
+
+TYPE-POOLS: slis.
+
+TABLES: vbak, vbap, makt.
+
+TYPES : BEGIN OF gty_data,
+          sel,
+          vbeln TYPE vbak-vbeln,
+          auart TYPE vbak-auart,
+          matnr TYPE vbap-matnr,
+          maktx TYPE makt-maktx,
+        END OF gty_data.
+
+DATA: gt_data   TYPE TABLE OF gty_data,
+      gs_data   TYPE gty_data.
+
+
+DATA: s_fcat    TYPE slis_fieldcat_alv,
+      st_fcat   TYPE slis_t_fieldcat_alv,
+      gd_layout TYPE slis_layout_alv.
+
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME  TITLE TEXT-001.
+SELECT-OPTIONS : s_vbeln FOR vbak-vbeln,
+                 s_auart FOR vbak-auart NO INTERVALS NO-EXTENSION,
+                 s_matnr FOR vbap-matnr NO INTERVALS NO-EXTENSION.
+SELECTION-SCREEN END OF BLOCK b1.
+
+
+PERFORM get_data.
+
+PERFORM build_layout.
+
+PERFORM display_alv.
+
+
+FORM get_data.
+  CLEAR : gt_data,
+          gs_data.
+  SELECT
+      vbak~vbeln
+      vbak~auart
+      vbap~matnr
+      makt~maktx
+    INTO CORRESPONDING FIELDS OF TABLE gt_data
+    FROM
+        vbak
+    INNER JOIN
+        vbap
+    ON
+        vbak~vbeln = vbap~vbeln
+    INNER JOIN
+        makt
+    ON
+        vbap~matnr = makt~matnr
+    WHERE
+        vbak~auart IN s_auart
+    AND
+        vbak~vbeln IN s_vbeln
+    AND
+        vbap~matnr IN s_matnr
+    AND
+        makt~spras EQ sy-langu.
+
+  CLEAR st_fcat.
+
+  CALL FUNCTION 'REUSE_ALV_FIELDCATALOG_MERGE'
+    EXPORTING
+      i_program_name         = SY-REPID
+*      i_internal_tabname     = 'GT_DATA'
+      i_structure_name       = 'ZTEST_UFUK'
+*     I_CLIENT_NEVER_DISPLAY = ' '
+    CHANGING
+      ct_fieldcat            = st_fcat
+    EXCEPTIONS
+      inconsistent_interface = 1
+      program_error          = 2
+      OTHERS                 = 3.
+  IF sy-subrc <> 0.
+  ENDIF.
+ENDFORM.
+
+DATA: gd_repid  LIKE sy-repid,
+      g_variant TYPE disvariant.
+
+FORM build_layout.
+  gd_layout-box_fieldname     = 'SEL'.
+  gd_layout-zebra             = 'X'.
+ENDFORM.
+
+FORM display_alv.
+  gd_repid = sy-repid.
+  gd_layout-colwidth_optimize = 'X'.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+      it_fieldcat              = st_fcat
+      i_callback_program       = gd_repid
+      is_layout                = gd_layout
+      i_callback_pf_status_set = 'SUB_PF_STATUS'
+      i_callback_user_command  = 'USER_COMMAND'
+      i_save                   = 'X'
+      is_variant               = g_variant
+    TABLES
+      t_outtab                 = gt_data
+    EXCEPTIONS
+      program_error            = 1
+      OTHERS                   = 2.
+
+ENDFORM.
+
+FORM sub_pf_status USING rt_extab TYPE slis_t_extab..
+  SET PF-STATUS 'STANDARD'.
+ENDFORM.
+
+FORM user_command USING r_ucomm LIKE sy-ucomm
+                  rs_selfield   TYPE slis_selfield.
+
+  DATA : fm_name_v          TYPE  rs38l_fnam,
+         control_parameters TYPE ssfctrlop,
+         wa_job_output_info TYPE ssfcrescl.
+
+  IF r_ucomm EQ 'PRINT'.
+    control_parameters-no_open  = 'X'.
+    control_parameters-no_close = 'X'.
+
+    CALL FUNCTION 'SSF_FUNCTION_MODULE_NAME'
+      EXPORTING
+        formname = 'ZSMARTFORMS_UFUK2'
+      IMPORTING
+        fm_name  = fm_name_v.
+
+    CALL FUNCTION 'SSF_OPEN'
+      EXPORTING
+*       ARCHIVE_PARAMETERS =
+*       USER_SETTINGS      = 'X'
+*       MAIL_SENDER        =
+*       MAIL_RECIPIENT     =
+*       MAIL_APPL_OBJ      =
+*       OUTPUT_OPTIONS     =
+        control_parameters = control_parameters
+      EXCEPTIONS
+        formatting_error   = 1
+        internal_error     = 2
+        send_error         = 3
+        user_canceled      = 4
+        OTHERS             = 5.
+
+    IF sy-subrc <> 0.
+*       MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*       WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+    ENDIF.
+
+    LOOP AT gt_data INTO gs_data WHERE sel = 'X'.
+      CALL FUNCTION fm_name_v
+        EXPORTING
+*         ARCHIVE_INDEX      =
+*         ARCHIVE_INDEX_TAB  =
+*         ARCHIVE_PARAMETERS =
+          control_parameters = control_parameters
+*         MAIL_APPL_OBJ      =
+*         MAIL_RECIPIENT     =
+*         MAIL_SENDER        =
+*         OUTPUT_OPTIONS     =
+*         USER_SETTINGS      = 'X'
+          gs_data            = gs_data
+*       IMPORTING
+*         DOCUMENT_OUTPUT_INFO       =
+*         JOB_OUTPUT_INFO    =
+*         JOB_OUTPUT_OPTIONS =
+        EXCEPTIONS
+          formatting_error   = 1
+          internal_error     = 2
+          send_error         = 3
+          user_canceled      = 4
+          OTHERS             = 5.
+      IF sy-subrc <> 0.
+*       Implement suitable error handling here
+      ENDIF.
+    ENDLOOP.
+***************************************************************
+    CALL FUNCTION 'SSF_CLOSE'
+*   IMPORTING
+*     JOB_OUTPUT_INFO        =
+      EXCEPTIONS
+        formatting_error = 1
+        internal_error   = 2
+        send_error       = 3
+        OTHERS           = 4.
+    IF sy-subrc <> 0.
+* MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+* WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+    ENDIF.
+  ENDIF.
+ENDFORM.
+
+
+
+
+
+*
+*
+*  CLEAR s_fcat.
+*
+*  s_fcat-col_pos = 1.
+*  s_fcat-fieldname = 'VBELN'.
+*  s_fcat-seltext_l = 'Sales Document'.
+*  s_fcat-outputlen = '25'.
+*  APPEND s_fcat TO st_fcat.
+*
+*  CLEAR s_fcat.
+*
+*  s_fcat-col_pos = 2.
+*  s_fcat-fieldname = 'AUART'.
+*  s_fcat-seltext_l = 'Sales Document Type'.
+*  s_fcat-outputlen = '3'.
+*  APPEND s_fcat TO st_fcat.
+*
+*  CLEAR s_fcat.
+*
+*  s_fcat-col_pos = 3.
+*  s_fcat-fieldname = 'MATNR'.
+*  s_fcat-seltext_l = 'Material Number'.
+*  s_fcat-outputlen = '25'.
+*  APPEND s_fcat TO st_fcat.
+*
+*  s_fcat-col_pos = 4.
+*  s_fcat-fieldname = 'MAKTX'.
+*  s_fcat-seltext_l = 'Material Description'.
+*  s_fcat-outputlen = '25'.
+*  APPEND s_fcat TO st_fcat.
+*
+*  "fieldkataloðu fonksiyon ile yarat.
